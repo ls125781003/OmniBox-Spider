@@ -2,7 +2,7 @@
 // @author
 // @description 刮削：支持，弹幕：支持，嗅探：支持
 // @dependencies: axios, cheerio
-// @version 1.1.1
+// @version 1.2.0
 // @downloadURL https://gh-proxy.org/https://github.com/Silent1566/OmniBox-Spider/raw/refs/heads/main/影视/网盘/木偶.js
 
 // 引入 OmniBox SDK
@@ -31,7 +31,45 @@ const WEB_SITES = WEB_SITE_CONFIG.split(';').map(url => url.trim()).filter(url =
 const DRIVE_TYPE_CONFIG = (process.env.DRIVE_TYPE_CONFIG || "quark;uc").split(';').map(t => t.trim()).filter(t => t);
 // 读取环境变量:线路名称和顺序,用分号分割
 const SOURCE_NAMES_CONFIG = (process.env.SOURCE_NAMES_CONFIG || "本地代理;服务端代理;直连").split(';').map(s => s.trim()).filter(s => s);
+// 读取环境变量:详情页播放线路的网盘排序顺序。仅作用于 detail() 里的播放线路，不作用于搜索结果。
+const DRIVE_ORDER = (process.env.DRIVE_ORDER || "baidu;tianyi;quark;uc;115;xunlei;ali;123pan").split(';').map(s => s.trim().toLowerCase()).filter(Boolean);
 // ==================== 配置区域结束 ====================
+
+/**
+ * 作用: 从线路名推断网盘类型，用于 detail 播放线路排序。
+ * 注意: 这里只识别常见网盘关键字，不改变原脚本其他业务逻辑。
+ */
+function inferDriveTypeFromSourceName(name = "") {
+  const raw = String(name || '').toLowerCase();
+  if (raw.includes('百度')) return 'baidu';
+  if (raw.includes('天翼')) return 'tianyi';
+  if (raw.includes('夸克')) return 'quark';
+  if (raw === 'uc' || raw.includes('uc')) return 'uc';
+  if (raw.includes('115')) return '115';
+  if (raw.includes('迅雷')) return 'xunlei';
+  if (raw.includes('阿里')) return 'ali';
+  if (raw.includes('123')) return '123pan';
+  return raw;
+}
+
+/**
+ * 作用: 仅对 detail() 中已构建完成的 playSources 做排序。
+ * 规则: 按 DRIVE_ORDER 优先级排序；未命中的线路保持在后面。
+ */
+function sortPlaySourcesByDriveOrder(playSources = []) {
+  if (!Array.isArray(playSources) || playSources.length <= 1 || DRIVE_ORDER.length === 0) {
+    return playSources;
+  }
+  const orderMap = new Map(DRIVE_ORDER.map((name, index) => [name, index]));
+  return [...playSources].sort((a, b) => {
+    const aType = inferDriveTypeFromSourceName(a?.name || '');
+    const bType = inferDriveTypeFromSourceName(b?.name || '');
+    const aOrder = orderMap.has(aType) ? orderMap.get(aType) : Number.MAX_SAFE_INTEGER;
+    const bOrder = orderMap.has(bType) ? orderMap.get(bType) : Number.MAX_SAFE_INTEGER;
+    if (aOrder !== bOrder) return aOrder - bOrder;
+    return 0;
+  });
+}
 
 if (WEB_SITES.length === 0) {
   throw new Error("WEB_SITE 配置不能为空");
@@ -689,7 +727,7 @@ async function detail(params, context) {
 
     OmniBox.log("info", `解析完成,找到网盘链接： ${JSON.stringify(panUrls)}`);
 
-    const playSources = [];
+    let playSources = [];
 
     const driveTypeCountMap = {};
     for (const shareURL of panUrls) {
@@ -971,6 +1009,12 @@ async function detail(params, context) {
     }
 
     OmniBox.log("info", `构建播放源完成,网盘数量: ${playSources.length}`);
+
+    // 仅在详情页返回前，对播放线路按网盘类型优先级排序
+    if (Array.isArray(playSources) && playSources.length > 1 && DRIVE_ORDER.length > 0) {
+      playSources = sortPlaySourcesByDriveOrder(playSources);
+      OmniBox.log("info", `[detail] 按 DRIVE_ORDER 排序后线路顺序: ${playSources.map(item => item.name).join(' | ')}`);
+    }
 
     const vodDetail = {
       vod_id: videoId,
