@@ -185,6 +185,19 @@ def parse_extend(raw):
             return {}
 
 
+def safe_json_parse(value, fallback=None):
+    if fallback is None:
+        fallback = {}
+    if value is None:
+        return fallback
+    if isinstance(value, (dict, list)):
+        return value
+    try:
+        return json.loads(value)
+    except Exception:
+        return fallback
+
+
 def decrypt_hex_xor(data):
     raw = str(data or "")
     key = "0x1A2B3C4D5E6F7A8B9C"
@@ -350,7 +363,12 @@ def session_cookie_header(session):
 
 async def raw_request(url, method="GET", headers=None, body=None, timeout=10000):
     all_headers = {**SITE_HEADERS, **(headers or {})}
-    geetest_host = 'gcaptcha4.geetest.com' in str(url) or 'static.geetest.com' in str(url)
+    geetest_host = (
+        'gcaptcha4.geetest.com' in str(url)
+        or 'gcaptcha4.geevisit.com' in str(url)
+        or 'static.geetest.com' in str(url)
+        or 'static.geevisit.com' in str(url)
+    )
     if not geetest_host and curl_requests is not None:
         try:
             session = curl_requests.Session(impersonate='chrome124')
